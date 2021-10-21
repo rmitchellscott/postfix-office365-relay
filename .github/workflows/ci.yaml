@@ -1,0 +1,47 @@
+name: CI
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build Docker Image
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set current branch
+        id: branch
+        run: printf '::set-output name=short_ref::%s' $(echo -n "${GITHUB_REF##refs/*/}" | tr -Cs 'A-Za-z0-9._-' '_')
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Login to Harbor
+        uses: docker/login-action@v1
+        with:
+          registry: harbor.mitchellscott.us
+          username: robot$github
+          password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      - name: Build and Push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          pull: true
+          push: true
+          context: .
+          file: ./Dockerfile
+          tags: |
+            harbor.mitchellscott.us/library/smtp-relay:${{ github.sha }}
+            harbor.mitchellscott.us/library/smtp-relay:${{ steps.branch.outputs.short_ref }}
+            harbor.mitchellscott.us/library/smtp-relay:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
+      - name: Move Cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
